@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>LRT Daily Question</title>
+</head>
+<body>
+  <h2>Balsavimo rezultatai</h2>
+  <table border="1" id="tbl"></table>
+
+  <script>
+    fetch("https://www.lrt.lt/api/v1/daily-question/2417?t=" + new Date().getTime(), {
+      cache: "no-store"
+    })
+      .then(res => res.json())
+      .then(data => {
+        const table = document.getElementById("tbl");
+
+        // Antraštė be nuotraukos stulpelio
+        table.innerHTML = `
+          <tr>
+            <th>Dalyvis</th>
+            <th>Balsai</th>
+            <th>%</th>
+          </tr>
+        `;
+
+        // Rikiuojam nuo daugiausiai balsų
+        data.choices
+          .sort((a, b) => b.votes - a.votes)
+          .forEach(c => {
+            table.innerHTML += `
+              <tr>
+                <td>${c.name}</td>
+                <td>${c.votes}</td>
+                <td>${c.percentage}%</td>
+              </tr>
+            `;
+          });
+      })
+      .catch(err => {
+        document.body.innerHTML += "<p>Klaida kraunant duomenis.</p>";
+        console.error(err);
+      });
+  </script>
+</body>
+</html>
