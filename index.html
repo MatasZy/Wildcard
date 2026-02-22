@@ -23,7 +23,6 @@ h2{margin-bottom:5px;}
 }
 
 /* ===== STATISTIKA ===== */
-
 .stats{
   display:grid;
   grid-template-columns: repeat(auto-fit,minmax(160px,1fr));
@@ -65,7 +64,6 @@ h2{margin-bottom:5px;}
 }
 
 /* ===== LENTELE ===== */
-
 table{
   width:95%;
   max-width:1000px;
@@ -116,7 +114,6 @@ img{
 }
 
 /* Podium */
-
 .firstPlace{
   background:linear-gradient(90deg,rgba(255,215,0,0.25),transparent);
 }
@@ -188,11 +185,16 @@ canvas{
     <div class="statLabel">🚀 Greičiausiai auga</div>
   </div>
 
+  <div class="statCard">
+    <div class="statNumber" id="leaderPercent">0%</div>
+    <div class="statLabel">🥇 Lyderio dalis</div>
+  </div>
+
 </div>
 
 <table id="tbl"></table>
 
-<canvas id="chart"></canvas>
+<canvas id="pieChart"></canvas>
 
 <div id="toast"></div>
 
@@ -202,7 +204,7 @@ let previousRanks = {};
 let previousTop = null;
 let refreshInterval = 5;
 let timeLeft = refreshInterval;
-let chart;
+let pieChart;
 
 function showToast(text){
   const toast=document.getElementById("toast");
@@ -212,121 +214,122 @@ function showToast(text){
 }
 
 function fetchData(){
-fetch("https://www.lrt.lt/api/v1/daily-question/2417?t="+Date.now(),{cache:"no-store"})
-.then(res=>res.json())
-.then(data=>{
+  fetch("https://www.lrt.lt/api/v1/daily-question/2417?t="+Date.now(),{cache:"no-store"})
+  .then(res=>res.json())
+  .then(data=>{
+    const table=document.getElementById("tbl");
+    table.innerHTML=`
+      <tr>
+        <th>Dalyvis</th>
+        <th>Balsai</th>
+        <th>Pokytis</th>
+        <th>%</th>
+        <th>Skirtumas</th>
+      </tr>`;
 
-const table=document.getElementById("tbl");
-table.innerHTML=`
-<tr>
-<th>Dalyvis</th>
-<th>Balsai</th>
-<th>Pokytis</th>
-<th>%</th>
-<th>Skirtumas</th>
-</tr>`;
+    let sorted=data.choices.sort((a,b)=>b.votes-a.votes);
+    let topVotes=sorted[0]?.votes||0;
+    let totalVotes=0;
+    let totalGain=0;
+    let fastestGrower={name:"–",gain:0};
 
-let sorted=data.choices.sort((a,b)=>b.votes-a.votes);
-let topVotes=sorted[0]?.votes||0;
-let totalVotes=0;
-let totalGain=0;
-let fastestGrower={name:"–",gain:0};
+    sorted.forEach((c,index)=>{
+      // Pašaliname // simbolius iš pavadinimų
+      let name=c.name.replace(/\/+/g,'');
+      let oldVotes=previousVotes[name]??c.votes;
+      let gain=c.votes-oldVotes;
 
-sorted.forEach((c,index)=>{
-let name=c.name.replace(/\/+/g,'');
-let oldVotes=previousVotes[name]??c.votes;
-let gain=c.votes-oldVotes;
+      if(gain>fastestGrower.gain){
+        fastestGrower={name:name,gain:gain};
+      }
 
-if(gain>fastestGrower.gain){
-  fastestGrower={name:name,gain:gain};
+      totalGain+=gain;
+      totalVotes+=c.votes;
+
+      let diff=index===0?0:topVotes-c.votes;
+
+      let rankChange="";
+      if(previousRanks[name]!=null){
+        if(previousRanks[name]>index) rankChange=" 🔼";
+        if(previousRanks[name]<index) rankChange=" 🔽";
+      }
+
+      table.innerHTML+=`
+        <tr class="${index===0?'firstPlace':index===1?'secondPlace':index===2?'thirdPlace':''}">
+          <td class="nameCell">
+            <img src="${c.image||'https://via.placeholder.com/45'}">
+            <strong>${index+1}. ${name}</strong>${rankChange}<br>
+            <small>${c.song||''}</small>
+          </td>
+          <td>${c.votes.toLocaleString()}</td>
+          <td class="${gain>=0?'gainUp':'gainDown'}">${gain>=0?'+':''}${gain}</td>
+          <td>
+            <div class="progressBar">
+              <div class="progressFill" style="width:${c.percentage}%"></div>
+            </div>
+            ${c.percentage}%
+          </td>
+          <td>${diff.toLocaleString()}</td>
+        </tr>`;
+      previousVotes[name]=c.votes;
+      previousRanks[name]=index;
+    });
+
+    // Statistikos kortelės
+    let votesPerMinute=Math.round((totalGain/refreshInterval)*60);
+    document.getElementById("totalVotes").innerHTML=totalVotes.toLocaleString();
+    document.getElementById("votesPerMinute").innerHTML=votesPerMinute.toLocaleString();
+    document.getElementById("leaderGap").innerHTML=
+      (sorted[1]? (sorted[0].votes-sorted[1].votes).toLocaleString():0);
+    document.getElementById("fastestGrower").innerHTML=
+      fastestGrower.gain>0 ? fastestGrower.name+" (+"+fastestGrower.gain+")":"–";
+
+    let leaderPercent = totalVotes ? Math.round((sorted[0].votes/totalVotes)*100) : 0;
+    document.getElementById("leaderPercent").innerHTML = leaderPercent + "%";
+
+    if(previousTop && previousTop!==sorted[0].name){
+      showToast("🔥 Naujas lyderis: "+sorted[0].name);
+    }
+    previousTop=sorted[0].name;
+
+    updatePieChart(sorted.slice(0,5));
+
+    document.getElementById("lastUpdate").innerHTML=
+      "Atsinaujino: "+new Date().toLocaleTimeString();
+    timeLeft=refreshInterval;
+  });
 }
 
-totalGain+=gain;
-totalVotes+=c.votes;
+function updatePieChart(top5){
+  const ctx=document.getElementById('pieChart').getContext('2d');
+  let labels=top5.map(c=>c.name.replace(/\/+/g,'')); // dar kartą užtikriname, kad // pašalinta
+  let votes=top5.map(c=>c.votes);
 
-let diff=index===0?0:topVotes-c.votes;
+  if(pieChart) pieChart.destroy();
 
-let rankChange="";
-if(previousRanks[name]!=null){
- if(previousRanks[name]>index) rankChange=" 🔼";
- if(previousRanks[name]<index) rankChange=" 🔽";
-}
-
-table.innerHTML+=`
-<tr class="${index===0?'firstPlace':index===1?'secondPlace':index===2?'thirdPlace':''}">
-<td class="nameCell">
-<img src="${c.image||'https://via.placeholder.com/45'}">
-<strong>${index+1}. ${name}</strong>${rankChange}<br>
-<small>${c.song||''}</small>
-</td>
-<td>${c.votes.toLocaleString()}</td>
-<td class="${gain>=0?'gainUp':'gainDown'}">${gain>=0?'+':''}${gain}</td>
-<td>
-<div class="progressBar">
-<div class="progressFill" style="width:${c.percentage}%"></div>
-</div>
-${c.percentage}%
-</td>
-<td>${diff.toLocaleString()}</td>
-</tr>`;
-
-previousVotes[name]=c.votes;
-previousRanks[name]=index;
-});
-
-let votesPerMinute=Math.round((totalGain/refreshInterval)*60);
-
-document.getElementById("totalVotes").innerHTML=totalVotes.toLocaleString();
-document.getElementById("votesPerMinute").innerHTML=votesPerMinute.toLocaleString();
-document.getElementById("leaderGap").innerHTML=
-  (sorted[1]? (sorted[0].votes-sorted[1].votes).toLocaleString():0);
-
-document.getElementById("fastestGrower").innerHTML=
-  fastestGrower.gain>0 ? fastestGrower.name+" (+"+fastestGrower.gain+")":"–";
-
-if(previousTop && previousTop!==sorted[0].name){
- showToast("🔥 Naujas lyderis: "+sorted[0].name);
-}
-previousTop=sorted[0].name;
-
-updateChart(sorted.slice(0,5));
-
-document.getElementById("lastUpdate").innerHTML=
-"Atsinaujino: "+new Date().toLocaleTimeString();
-
-timeLeft=refreshInterval;
-
-});
-}
-
-function updateChart(top5){
-const ctx=document.getElementById('chart').getContext('2d');
-let labels=top5.map(c=>c.name);
-let votes=top5.map(c=>c.votes);
-
-if(chart) chart.destroy();
-
-chart=new Chart(ctx,{
-type:'bar',
-data:{
-labels:labels,
-datasets:[{
-label:'Balsai',
-data:votes
-}]
-},
-options:{
-plugins:{legend:{display:false}},
-responsive:true
-}
-});
+  pieChart=new Chart(ctx,{
+    type:'pie',
+    data:{
+      labels:labels,
+      datasets:[{
+        data:votes,
+        backgroundColor:[
+          '#FFD700','#C0C0C0','#CD7F32','#4caf50','#00c853'
+        ]
+      }]
+    },
+    options:{
+      responsive:true,
+      plugins:{legend:{position:'bottom'}}
+    }
+  });
 }
 
 setInterval(()=>{
-timeLeft--;
-if(timeLeft<=0) fetchData();
-document.getElementById("countdown").innerHTML=
-"Atnaujinama po: "+timeLeft+" s";
+  timeLeft--;
+  if(timeLeft<=0) fetchData();
+  document.getElementById("countdown").innerHTML=
+    "Atnaujinama po: "+timeLeft+" s";
 },1000);
 
 fetchData();
